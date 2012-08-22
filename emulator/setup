@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Setup images for QEMU Emulator
+#
+#
+# JL 2012-08-03
+
+image="13-06-2012"
+
+# Install QEMU
+
+pacman -Q qemu  > /dev/null 2>&1 || sudo pacman -S qemu
+
+# Get kernel image
+
+[[ -f kernel-qemu ]] || wget http://xecdesign.com/downloads/linux-qemu/kernel-qemu
+
+# Get system image
+
+[[ -f archlinuxarm-$image.img ]] || {
+    wget http://achtbaan.nikhef.nl/events/rpi/images/archlinuxarm/archlinuxarm-$image/archlinuxarm-$image.zip
+    unzip archlinuxarm-$image.zip
+    mv archlinuxarm-$image/archlinuxarm-$image.img .
+    rm -rf archlinuxarm-$image archlinuxarm-$image.zip
+}
+
+# Make a data disk
+
+[[ -f data_disk.raw ]] || qemu-img create -f raw data_disk.raw 5G
+
+

@@ -1,0 +1,30 @@
+#
+# Arch Linux ARM repository mirrorlist
+# Generated on 2012-06-08
+#
+
+## Geo-IP based mirror selection and load balancing
+Server = http://mirror.archlinuxarm.org/arm/$repo
+
+### Mirrors by country
+
+### China
+# Server = http://cn.mirror.archlinuxarm.org/arm/$repo
+
+### Finland
+# Server = http://fi.mirror.archlinuxarm.org/arm/$repo
+
+### Germany
+# Server = http://eu.mirror.archlinuxarm.org/arm/$repo
+# Server = http://6.eu.mirror.archlinuxarm.org/arm/$repo
+
+### Netherlands
+# Server = http://nl.mirror.archlinuxarm.org/arm/$repo
+
+### United States
+## CA
+# Server = http://ca.us.mirror.archlinuxarm.org/arm/$repo
+## IL
+# Server = http://us.mirror.archlinuxarm.org/arm/$repo
+## VA
+# Server = http://va.us.mirror.archlinuxarm.org/arm/$repo

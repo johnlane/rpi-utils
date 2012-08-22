@@ -1,0 +1,82 @@
+#!/bin/bash
+#
+# Mounts an RPI image or device (sdcard)
+#
+# usage: rpi_mount image mount_point
+#
+
+#  Copyright (c) 2012 John Lane
+#  
+#  MIT License
+#  
+#  Permission is hereby granted, free of charge, to any person obtaining
+#  a copy of this software and associated documentation files (the
+#  "Software"), to deal in the Software without restriction, including
+#  without limitation the rights to use, copy, modify, merge, publish,
+#  distribute, sublicense, and/or sell copies of the Software, and to
+#  permit persons to whom the Software is furnished to do so, subject to
+#  the following conditions:
+#  
+#  The above copyright notice and this permission notice shall be
+#  included in all copies or substantial portions of the Software.
+#  
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#  
+#  http://www.opensource.org/licenses/mit-license.php
+
+
+if [[ $(id -u ) != 0 ]]; then
+	
+    echo "Must be root"
+
+elif [[ ! -d $2 ]]; then
+
+    echo "Mount point $2 does not exist"
+
+else
+
+    if [[ -b $1 ]]; then
+    
+        # mount a device
+    
+        [[ ${1:5:6} == mmcblk ]] && partition_prefix="p"
+    
+        boot_partition=${1}${partition_prefix}1
+        root_partition=${1}${partition_prefix}2
+    
+    elif [[ -f $1 ]]; then
+    
+        if [[ "$(file -b myimage | awk -F ';' '{print $1}')" == "x86 boot sector" ]]; then
+    
+            # loop mount an image
+    
+            loop_device=$(losetup -f)
+    
+            losetup -P $loop_device $1 
+    
+            boot_partition=${loop_device}p1
+            root_partition=${loop_device}p2
+    
+        fi
+    
+    fi
+    
+    if [[ ! -z "${boot_partition}" ]]; then
+    
+        mount $root_partition $2
+        mkdir -p $2/boot
+        mount $boot_partition $2/boot
+    
+    else
+        echo "Don't know how to mount $1. Sorry"
+    fi
+
+fi
+    
+    

@@ -1,0 +1,22 @@
+#!/bin/bash
+#
+# Boot the Raspberry Pi in QEMU
+#
+#    Usage: boot [image]
+#
+#        where [image] is a filesystem image to boot from. This is optional: if it is not
+#        given then it defaults to "archlinux-13-0-6-2012.img" which must be present in
+#        the current working directory.
+#
+# JL 2012-08-03
+#
+
+qemu-system-arm -machine versatilepb                      \
+	        -cpu arm1176                              \
+		-m 256                                    \
+                -no-reboot                                \
+        	-serial stdio                             \
+                -kernel kernel-qemu                       \
+		-append "root=/dev/sda2 panic=1"          \
+		-hda ${1:-archlinuxarm-13-06-2012.img}    \
+		-hdb data_disk.raw

@@ -1,0 +1,7 @@
+#!/bin/bash
+parted -s /dev/mmcblk0 mklabel msdos
+parted -s /dev/mmcblk0 unit cyl mkpart primary fat32 -- 0 16
+parted -s /dev/mmcblk0 set 1 boot on
+parted -s /dev/mmcblk0 unit cyl mkpart primary ext2 -- 16 -2
+mkfs.vfat /dev/mmcblk0p1
+mkfs.ext4 /dev/mmcblk0p2 

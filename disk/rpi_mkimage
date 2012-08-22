@@ -1,0 +1,659 @@
+#!/usr/bin/env python2
+#
+LICENSE="""
+Copyright (c) 2012 John Lane
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+http://www.opensource.org/licenses/mit-license.php
+"""
+
+DESCRIPTION="""
+rpi_mkimg : Make a Raspberry Pi SD Card Image
+
+Describes and, optionally, makes a disk image with partitions
+and filesystems prepared in accordance with the write and erase
+geometries of the target device. Optionally copies files into 
+the new image from another image, directory or archive (tar file).
+
+Quick Start
+-----------
+
+Those that don't want to read the detail can try this:
+
+    $ sudo rpi_mkimg --device=sdcard --copy=image --create
+
+where 'sdcard' is the name of the sdcard device (e.g. mmcblk0)
+  and 'image' is the name of an image to copy (e.g.
+  archlinuxarm-13-06-2012.img)
+
+Detail
+------
+
+A device and/or an image name can be given as command-line
+arguments.
+
+If a device is given (such as an SD card that will be used
+to boot a Raspberry Pi), it will be used to set the attributes
+that are used to determine the block-level layout of the image.
+
+If no device is given then default values are used:
+
+    volume size = 2GiB
+    preferred erase size = 4MiB
+
+These attributes are used to define a partitioning scheme
+that ensures block alignment of the partitions and the file-
+systems on those partitions. Two partitions are created:
+
+    boot : a FAT32 partition (at least 40Mb)
+    root : an ext4 partition
+
+The partitioning scheme is displayed on standard output.
+
+A command-line argument can be given which causes a disk image
+to be created using the partitioning scheme. If this argument is
+not given then this will not happen. This is to protect against
+accidental writes.
+
+The image can be written directly onto the device or it can
+be written to a file that can be subsequently transferred onto
+a suitable device using 'dd'.
+
+If an image is specified then a new file will be created (replacing
+any existing file of the same name) and the partitioning scheme
+applied to it.
+
+If an image is not specified but a device is specified then
+the partitioning scheme will be applied to the device.
+
+NOTE: All contents of the device or any existing image file
+      will be overwritten!
+
+If neither image nor device are specified, the create argument
+is ignored and nothing will be created.
+
+Write permission to the image or device is required. Normally
+the latter will require root permissions.
+
+A command-line argument can be given which will copy files into
+the created image. This mounts the new image's root filesystem
+and then mounts its boot filesystem on top at /boot. The copy is
+then performed into the mount point.
+
+The files to be copied can be in another image file, directory
+or archive (tar) file.
+
+Block Alignment
+---------------
+
+The attribute used to define the device's block alignment is
+called preferred erase size. The actual value can be overriden
+using a command line argument.
+
+Block alignment is performed on the partitions as well as on the
+filesystems within them.
+
+Partitions and Filesystems
+--------------------------
+
+Two partitions are created in accordance with the requirements
+of the Raspberry Pi: A FAT32 partition containing a FAT16 boot
+filesystem and a linux partition containing an ext4 root file-
+system. Both partitions and filesystems are created in such a
+way that their data blocks are aligned with those of the device.
+
+By default:
+
+  - the boot partition size will be 40Mb but it may be larger than
+    this if the device's block sizes result in larger partitions;
+
+  - the root partition size will consume all of the
+    remaining space in the image;
+
+  - the total image size will be the size of any specified device
+    or 2GiB.
+
+Default sizes may be overridden using command-line arguments:
+
+  - specifying a minimum size for a partition will ensure that the 
+    partition is at least that size. If this this cannot be achieved
+    then the programme will exit with an appropriate message.
+
+  - specifying a maximum size for a partition will make the
+    partition no bigger than that maximum (subject to block alignment,
+    see below) and any remaining space in the image will be unused.
+
+Partitions may be sized larger than a specified maximum if this is
+necessary to achieve block alignment.
+
+Operational requirements
+------------------------
+
+Arch Linux package requirements:
+    parted         : to make partitions
+    dosfstools     : to make vfat partition
+    python-pexpect : Python Expect used to run commands
+
+The loop device is used to mount image files. Ensure the "loop" kernel
+module is loaded: "modprobe loop" should achieve this.
+
+Commands requiring privileged entitlements are executed with sudo.
+
+
+                   (c) John Lane 2012-08-03.
+                Licensed under the MIT License. 
+
+                   Part of the rpi-utilities:
+              https://github.com/johnlane/rpi-utils
+
+"""
+
+
+# References:
+#
+import sys
+import os
+import pexpect
+import argparse
+import atexit
+import tempfile
+import pwd
+
+def align(sector,grain):
+    if args.align == True:
+        excess = sector%grain
+        sector = sector if excess == 0 else sector + grain - excess
+    return sector
+
+def print_partition_info(name,start_sector,end_sector):
+
+    size_mib = (end_sector - start_sector + 1) * 512 / (1<<20) 
+
+    print "------------------------------------------------------------"
+    print " Partition '%s':" % name
+    print "    Start sector     : %d" % start_sector
+    print "    End sector       : %d" % end_sector
+    print "    512 byte sectors : %d" % (end_sector - start_sector + 1)
+    print "    1KiB Blocks      : %d" % ((end_sector - start_sector + 1) / 2)
+    print "    Size             : %d MiB" % ((end_sector - start_sector + 1) * 512 / (1<<20))
+    print "------------------------------------------------------------"
+
+def gib(n):
+    return (float(n)/(1<<30))
+
+def mib(n):
+    return (float(n)/(1<<20))
+
+def kib(n):
+    return (float(n)/(1<<10))
+
+def print_bytes(label,value):
+    llen=len(label)
+    print "%s : %d bytes" % (label,value)
+    if value>=(1<<10) and value<(1<<20): print "%s : %g Kib" % (''.rjust(llen),kib(value))
+    if value>=(1<<20): print "%s : %g Mib" % (''.rjust(llen),mib(value))
+    if value>=(1<<30): print "%s : %g Gib" % (''.rjust(llen),gib(value))
+
+def run_command(command):
+    output, exit_status = pexpect.run(command, withexitstatus=1)
+    output = output.strip()
+    return output, exit_status
+
+def do_or_die(command,error_message="Command Failed"):
+    output, exit_status = run_command(command)
+    if exit_status != 0:
+        abort("%s : %s" % (error_message, output))
+    return output
+
+def writable_or_die(d):
+    if os.access(d,os.W_OK) != True:
+        abort("No write access to %s" % d)
+
+def create_loop_device(d):
+    loop_device = do_or_die("losetup -f","Unable to get a loop device")
+    debug("Setting up loop device %s for %s" % (loop_device,d))
+    do_or_die("losetup -P %s %s" % (loop_device,d), "Unable to create loop device")
+    return loop_device
+
+def destroy_loop_device(d):
+    do_or_die("losetup -d %s" % d,"Unable to destroy loop device")
+
+
+def abort(error_message):
+    sys.exit("%s. Cannot continue" % error_message)
+
+##############################################################################################
+# A very primitive message logger
+LOG_DEBUG = 'debug'
+LOG_VERBOSE = 'verbose'
+def verbose(message): log(LOG_VERBOSE,message)
+def debug(message): log(LOG_DEBUG,message)
+def log(level,message):
+    if args.loglevels != None and level in args.loglevels: print "(%s) %s" % (level,message)
+def debug_enabled(): return args.loglevels != None and LOG_DEBUG in args.loglevels
+def verbose_enabled(): return args.loglevels != None and LOG_VERBOSE in args.loglevels
+##############################################################################################
+
+def allocate_sectors(first_sector,available_sectors,sector_alignment_grain,minimum_kb,maximum_kb,align_start=True):
+    min_sectors = minimum_kb / 512
+    max_sectors = maximum_kb / 512
+
+    if minimum_kb < ( min_sectors * 512 ): min_sectors += 1
+    if maximum_kb < ( max_sectors * 512 ): max_sectors += 1
+
+    if max_sectors == 0: max_sectors = available_sectors
+
+    debug("requested minimum %s and maximum %s sectors" % (min_sectors,max_sectors))
+
+    # align the first sector except unless requested not to
+    start_sector = align(first_sector,sector_alignment_grain) if align_start else first_sector
+
+    debug("allocating sectors, %d available starting at sector %d" % (available_sectors,start_sector))
+    debug("starting sector %d aligned to %d" % (first_sector,start_sector))
+    available_sectors -= (start_sector - first_sector)
+    debug("%d available sectors after front alignment" % available_sectors)
+
+    if available_sectors < min_sectors:
+        abort("Unable to allocate %d sectors (%d available)" % (min_sectors,available_sectors))
+
+    num_sectors =  max_sectors if available_sectors >= max_sectors else available_sectors
+    debug( "allocated %d sectors" % num_sectors)
+
+    next_sector = start_sector + num_sectors 
+    debug("the next free sector is %d" % next_sector)
+
+    # Unless we've used up all sectors, align the next free sector and extend allocation
+    if next_sector == start_sector + available_sectors:
+
+	# There are no more free sectors; the end sector is one less than the total number of sectors
+	# fdisk numbers LBA sectors from 0 but sector 0 is 'hidden' and contains the MBR. Sector 
+	# numbers for partitions start at 1. Because there is a sector 0 the number of the last
+	# sector is one less than the total number of sectors. The value 'next sector' will be one 
+	# greater than the total number of sectors, so we subtract 2 to get the last sector.
+	# 
+	end_sector = next_sector - 1
+        next_sector = 0
+	available_sectors = 0
+
+    elif next_sector > start_sector + available_sectors:
+
+        # This case should never arise
+        abort("Unexpected sector number %d, which is greater than the total number of sectors, %d" % (next_sector,start_sector + available_sectors))
+
+    else:
+
+	# Align the next free sector; the end sector is the one before that
+        next_sector = align(next_sector,sector_alignment_grain)
+	end_sector = next_sector - 1
+        
+    debug("start %d" % start_sector)
+    debug("end %d" % end_sector)
+    debug("num %d" % num_sectors)
+    debug("next %d" % next_sector)
+
+    return start_sector, end_sector, next_sector, available_sectors - (end_sector +1 - start_sector) 
+
+def main(name, argv):
+
+    def cleanup():
+	try:
+            if loop_device: destroy_loop_device(loop_device)
+            if copy_loop_device: destroy_loop_device(copy_loop_device)
+	except NameError as e:
+	    pass # move along, nothing to do
+
+    atexit.register(cleanup)
+
+    # Default sizes
+    pes = 4<<20       # 4MiB
+    #wbs = 8<<10       # 8KiB (not used)
+    vs  = 2<<30       # 2GiB
+
+
+    # Parition sizing minima/maxima
+    bp_size_minimum = 40<<20   # 40MiB
+    bp_size_maximum = 40<<20   # 40MiB
+    rp_size_minimum = 1<<30    # 1GiB
+    rp_size_maximum = 0        # No limit
+
+    # Arguments
+    global args
+    parser = argparse.ArgumentParser(description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--license', action='store_true', default=False, dest='license',
+                        help='show the MIT License')
+    parser.add_argument('-d', '--device', action='store', dest='device',
+                        help='Specify a device name (e.g. mmcblk0)')
+    parser.add_argument('-i', '--image', action='store', dest='image',
+                        help='Specify an image file name(e.g. myimage.img)')
+    parser.add_argument('--copy', action='store', dest='copy',
+                        help='Copy into the image from another image, directory or archive (tar) file ')
+    parser.add_argument('-c', '--create', action='store_true', default=False, dest='create',
+                        help='Create (overwrites existing data)')
+    parser.add_argument('-v', '--verbose', action='append_const', const=LOG_VERBOSE, dest='loglevels',
+                        help='Enable verbose message output')
+    parser.add_argument('--debug', action='append_const', const=LOG_DEBUG, dest='loglevels',
+                        help='Enable debug message output')
+
+    parser.add_argument('--boot-minimum', action='store', dest='bp_size_minimum',
+                        help='Override the boot partition minimum size default (%d)'%bp_size_minimum)
+    parser.add_argument('--boot-maximum', action='store', dest='bp_size_maximum',
+                        help='Override the boot partition maximum size default (%d)'%bp_size_maximum)
+    parser.add_argument('--root-minimum', action='store', dest='rp_size_minimum',
+                        help='Override the root partition minimum size default (%d)'%rp_size_minimum)
+    parser.add_argument('--root-maximum', action='store', dest='rp_size_maximum',
+                        help='Override the root partition maximum size default (%d)'%rp_size_maximum)
+
+    parser.add_argument('--first-sector', action='store', dest='first_sector',
+                        help='Specify a first sector to use (default is sector 1)')
+    parser.add_argument('--size', action='store', dest='volume_size',
+                        help='Specify the size of the whole disk in bytes (default is %d bytes)'%vs)
+    parser.add_argument('--erase-block-size', action='store', dest='erase_block_size',
+                        help='Specify the erase block size bytes (default is %d bytes or that of the device specified with -d)'%vs)
+    #parser.add_argument('--write-block-size', action='store', dest='write_block_size',
+    #                    help='Specify the write block size bytes (default is %d bytes or that of the device specified with -d)'%vs)
+
+    parser.add_argument('--no-align', action='store_false', default=True, dest='align',
+                        help='Disable write block alignment')
+    parser.add_argument('--no-align-first', action='store_false', default=True, dest='align_first_partition',
+                        help='Do not align the first partition (it will start at first-sector)')
+
+    args = parser.parse_args()
+
+    if args.license == True:
+        print LICENSE
+	return 0
+
+    if args.bp_size_minimum != None: bp_size_minimum = int(args.bp_size_minimum)
+    if args.bp_size_maximum != None: bp_size_maximum = int(args.bp_size_maximum)
+    if args.rp_size_minimum != None: rp_size_minimum = int(args.rp_size_minimum)
+    if args.rp_size_maximum != None: rp_size_maximum = int(args.rp_size_maximum)
+
+    # Preferred Erase Size
+    if args.erase_block_size != None:
+        pes = int(args.erase_block_size)
+    elif (args.device != None):
+        try:
+            device = args.device
+            device_sys_path = "/sys/class/block/%s" % (device, )
+            pes = int(file(device_sys_path+"/device/preferred_erase_size").read())
+            print "Using device %s" % device
+            vss = int(file(device_sys_path+"/size").read())
+	    vs = vss * 512
+        except IOError as e:
+            print "Device %s not found: Using default values." % device
+    else:
+        print "No Device specified: Using default values."
+
+    # Write Block Size
+    #if args.write_block_size != None: wbs = int(args.write_block_size)
+
+    # Volume size in sectors
+    if args.volume_size != None: vs = int(args.volume_size)
+    vss = vs / 512 # vs in sectors 
+
+    # First available sector (sector 0 is reserved for the MBR which contains the partition table)
+    first_sector = 1 if args.first_sector == None else int(args.first_sector)
+
+    print "------------------------------------------------------------"
+
+    print "Volume Size : %d sectors" % vss
+    print_bytes("Volume Size",vs)
+
+    if bp_size_minimum>0: print_bytes("Boot Partition Minimum Size",bp_size_minimum)
+    if bp_size_maximum>0: print_bytes("Boot Partition Maximum Size",bp_size_maximum)
+    if rp_size_minimum>0: print_bytes("Root Partition Minimum Size",rp_size_minimum)
+    if rp_size_maximum>0: print_bytes("Root Partition Maximum Size",rp_size_maximum)
+
+    #print_bytes("Write Block Size",wbs)
+    print_bytes("Preferred Erase Size",pes)
+
+    # sector alignment grain in sectors (512 bytes per sector)
+    sector_alignment_grain = pes/512
+    print "Sector Alignment Grain : %d / 512 = %d sectors" % (pes,sector_alignment_grain)
+
+    # Total number of available sectors includes the first sector (which is sector 0)
+    # the unused sectors are 0 thru (first_sector -1). Sector 0 is reserved for the MBR.
+    available_sectors = vss - first_sector
+
+    print "Starting at sector %d of %d total sectors" % (first_sector,vss)
+    print "The %d available sectors are %d thru %d" % (available_sectors,first_sector,vss-1)
+    print "%d sectors will be skipped (sectors 0 thru %d)" % (first_sector,first_sector-1)
+
+
+    print
+    print " Partition description"
+
+    # Boot partition
+    bp_start_sector, bp_end_sector, next_sector, available_sectors = allocate_sectors(first_sector,available_sectors,sector_alignment_grain,bp_size_minimum,bp_size_maximum,args.align_first_partition)
+    print_partition_info("boot",bp_start_sector, bp_end_sector)
+
+    # Root partition
+    rp_start_sector, rp_end_sector, next_sector, available_sectors = allocate_sectors(next_sector,available_sectors,sector_alignment_grain,rp_size_minimum,rp_size_maximum)
+    print_partition_info("root",rp_start_sector,rp_end_sector)
+
+    # Report any unused sectors
+    if available_sectors > 0:
+        print "Partitioning scheme leaves %s sectors unused" % available_sectors
+
+    # Only proceed if create option given
+    if args.create == False:
+	    return 0
+
+    # must be root to go beyond here
+    if os.geteuid() != 0:
+        abort('Partitioning requires root privileges (and you are not root)')
+
+    # Where to write data
+    if args.image != None:
+        dest = args.image
+    elif args.device != None:
+        dest = args.device
+        dest_device = "/dev/%s" % dest
+    else:
+	print "Nothing to Create: neither device nor image specified."
+	return 0
+
+    # If dest is an image, create the image file and set up a loop device for it
+    if dest == args.image:
+	try:
+            if os.path.exists(dest): os.remove(dest) # remove any old image first
+            if pexpect.run('/bin/bash -c "df -T . | tail -1 | awk \'{print $2}\'"').rstrip() == "ext4":
+		debug("Using fallocate to create %s (%d bytes)" % (dest,vs))
+                pexpect.run("fallocate -l %d %s" % (vs,dest))
+            else:
+		debug("Using truncate to create %s (%d bytes)" % (dest,vs))
+                pexpect.run("truncate -s %d %s" % (vs,dest))
+
+            # make file owned by actual user (e.g. not root if invoked with sudo)
+            user = pexpect.run('logname').strip()
+	    if user != os.environ['USER']:
+		uid = pwd.getpwnam(user).pw_uid
+		gid = pwd.getpwnam(user).pw_gid
+		os.chown(dest,uid,gid)
+		debug("Changed %s ownweship to user %s (%d:%d)" % (dest,user,uid,gid))
+
+            loop_device = create_loop_device(dest)
+	    dest_device = loop_device
+
+	    dest_size = os.path.getsize("myimage")
+	    if dest_size != vs:
+		os.remove(dest)
+                abort("Created %s has incorrect size %d (expected %d)"%(dest,dest_size,vs))
+
+	except IOError as e:
+            abort("Unable to create %s" % dest)
+
+    # Make sure we can write to the destination
+    writable_or_die(dest_device)
+
+    debug("Will write to %s as %s" % (dest,dest_device))
+
+    # Get user confirmation
+    print "About to write new partition table to %s. Any existing data will be lost!!!!" % dest
+    if (raw_input("Enter 'yes' to continue (anything else quits!)...") != 'yes'):
+        return 0
+
+    # Do partitioning with parted
+    do_or_die("parted -s %s mktable msdos" % dest_device)
+    do_or_die("parted -s %s unit s mkpart primary fat32 %d %d" % (dest_device,bp_start_sector,bp_end_sector))
+    do_or_die("parted -s %s unit s mkpart primary ext2 %d %d" % (dest_device,rp_start_sector,rp_end_sector))
+
+    # Print the partition table
+    if verbose_enabled(): do_or_die("parted %s unit s print" % dest_device)
+
+    # Recreate any loop device so partition devices are available
+    try:
+        if loop_device:
+            destroy_loop_device(loop_device)
+            loop_device = create_loop_device(dest)
+    except NameError as e:
+        pass # move along, nothing to do
+
+    # Partition filesystem devices
+    dest_p1 = dest_device+"p1"
+    dest_p2 = dest_device+"p2"
+
+    # boot filesystem to be FAT16, aligned
+    #
+    # vfat args:
+    #            -I       Don't complain about using whole device
+    #            -F 16    FAT size is 16 bit
+    #            -n boot  volume label is 'boot'
+    #            -s 16    sectors per cluster (16 * 512 = 8KiB)
+    #            -v       Verbose output
+    #            -R       number of sectors to reserve
+
+    print "Creating boot filesystem"
+
+    # Make sure we can write to the partition
+    writable_or_die(dest_p1)
+
+    # Make unaligned FAT filesystem to establish FAT size
+    mkfs = pexpect.spawn("mkfs.vfat -I -F 16 -n boot -s 16 -v %s" % dest_p1)
+    if debug_enabled(): mkfs.logfile = sys.stdout
+    mkfs.expect('FAT size is ([0-9]+) sectors')
+    fat_sectors = int(mkfs.match.groups()[0])
+    mkfs.expect('Volume ID is (.*), volume label (.*)')
+    vol_id, vol_name = mkfs.match.groups()
+    mkfs.expect(pexpect.EOF)
+
+    # make aligned FAT filesystem
+    if args.align == True and args.align_first_partition == True:
+
+        debug("There are %d sectors in the FAT" % fat_sectors)
+
+        # There are two FATS, work out total size in bytes
+        fat_bytes = fat_sectors * 512 *2
+	debug("FAT sectors total %d bytes" % fat_bytes)
+
+        # Work out how many sectors to reserve to achieve alignment
+        reserved_sectors = (pes - fat_bytes) / 512
+        debug("Reserve %d sectors to achieve alignment" % reserved_sectors)
+
+        # Make aligned FAT filesystem
+        mkfs = pexpect.spawn("mkfs.vfat -I -F 16 -n boot -s 16 -R %d -v %s" % (reserved_sectors, dest_p1))
+        if debug_enabled(): mkfs.logfile = sys.stdout
+        mkfs.expect('Volume ID is (.*), volume label (.*)')
+        vol_id, vol_name = mkfs.match.groups()
+        mkfs.expect(pexpect.EOF)
+
+    print "Created volume %s id %s" % (vol_id, vol_name.strip())
+    uuid = pexpect.run("blkid -o value -s UUID %s" % dest_p1).strip()
+    print "Volume UUID: %s" % uuid
+
+    # root partition to be ext4, aligned
+    #
+    # ext4 args:
+    #            -O ^has_journal  disable journalling
+    #            -E stride=2      treat 2 blocks as 1
+    #               stripe-width=512   
+    #            -b 
+    #            -L root
+
+    print "Creating root filesystem"
+
+    # Make sure we can write to the partition
+    writable_or_die(dest_p2)
+
+    ext4_block_size = 4096
+    ext4_stride = 2
+    ext4_stride_size = ext4_block_size * ext4_stride 
+    ext4_stripe_width = pes / ext4_stride_size
+
+    mkfs = pexpect.spawn("mkfs.ext4 -O ^has_journal -E stride=%d,stripe-width=%d -b %d -L root  %s" % (ext4_stride, ext4_stripe_width, ext4_block_size, dest_p2))
+    if debug_enabled(): mkfs.logfile = sys.stdout
+    mkfs.expect(pexpect.EOF)
+
+    uuid = pexpect.run("blkid -o value -s UUID %s" % dest_p2).strip()
+    print "Volume UUID: %s" % uuid
+
+    if args.copy != None:
+	copy = args.copy
+
+	# Mount the image
+	dest_mount_point = tempfile.mkdtemp()
+        debug("Mounting %s on %s" % (dest_p2,dest_mount_point))
+	pexpect.run("mount %s %s" % (dest_p2,dest_mount_point))
+	os.mkdir(dest_mount_point+"/boot")
+        debug("Mounting %s on %s" % (dest_p1,dest_mount_point+"/boot"))
+	pexpect.run("mount %s %s" % (dest_p1,dest_mount_point+"/boot"))
+        	
+        copy_type = pexpect.run("file %s" % copy).strip()
+	if "x86 boot sector" in copy_type:
+	    print "Copying from image %s ..." % copy
+            copy_loop_device = create_loop_device(copy)
+            copy_boot_device = copy_loop_device+"p1"
+            copy_root_device = copy_loop_device+"p2"
+	    copy_mount_point = tempfile.mkdtemp()
+	    debug("Mounting %s on %s" % (copy_root_device,copy_mount_point))
+	    debug("Mounting %s on %s" % (copy_boot_device,copy_mount_point+"/boot"))
+	    pexpect.run("mount %s %s" % (copy_root_device,copy_mount_point))
+	    pexpect.run("mount %s %s" % (copy_boot_device,copy_mount_point+"/boot"))
+	    debug("Copying from %s to %s" % (copy_mount_point,dest_mount_point))
+	    os.system("cd %s ; cp -a * %s" % (copy_mount_point,dest_mount_point))
+	    debug("Unmounting %s" % copy_boot_device)
+            os.system("umount %s" % copy_boot_device)
+	    debug("Unmounting %s" % copy_root_device)
+            os.system("umount %s" % copy_root_device)
+	    debug("Removing directory %s" % copy_mount_point)
+	    os.rmdir(copy_mount_point)
+	    
+        elif "directory" in copy_type:
+	    print "Copyng from directory" % copy
+	    os.system("cd %s ; cp -a * %s" % (copy,dest_mount_point))
+	elif "tar archive" in copy_type or "compressed data" in copy_type:
+	    if "compressed data" in copy_type: print "File is compressed (assuming compressed tar file)"
+	    print "Copying from tar file" % copy
+	    os.system("cd %s ; tar xf %s" % (dest_mount_point, copy))
+        else:
+           print "Don't know how to copy %s" % copy
+
+	# Unmount the image
+        debug("Unmounting %s" % dest_p1)
+	pexpect.run("umount %s" % dest_p1) # /boot
+        debug("Unmounting %s" % dest_p2)
+	pexpect.run("umount %s" % dest_p2) # /
+
+    print "done"
+
+sys.exit(main(sys.argv[0], sys.argv[1:]))

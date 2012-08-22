@@ -1,0 +1,12 @@
+# Generic files to ignore
+*.un~
+*.swp
+
+# Specifially ignore emulator images
+emulator/*img
+emulator/*raw
+emulator/kernel-qemu
+
+# Specifically ignore disk images
+disk/*img
+disk/myimage

@@ -1,0 +1,44 @@
+#!/bin/bash
+#
+# archbuild : build an Arch Linux system (run this on the Raspberry Pi)
+#
+
+PACMAN_MIRRORLIST=`mktemp`
+PACMAN_CONF=`mktemp`
+curl https://projects.archlinux.org/svntogit/packages.git/plain/trunk/pacman.conf?h=packages/pacman > "$PACMAN_CONF"
+VPS_ARCH=arm
+sed -i -e "s@/etc/pacman.d/mirrorlist@$PACMAN_MIRRORLIST@g" -e "s/\Architecture = auto/Architecture = "$VPS_ARCH"/g" "$PACMAN_CONF"
+sed -i -e 's/^SigLevel/#SigLevel/' -e '/^#SigLevel = Optional TrustedOnly/a\SigLevel = Never' "$PACMAN_CONF"
+sed -i -e 's/^CheckSpace/#CheckSpace/' "$PACMAN_CONF"
+echo -e "[alarm]\nInclude = $PACMAN_MIRRORLIST" >> "$PACMAN_CONF"
+country='GB'
+cp /etc/pacman.d/mirrorlist $PACMAN_MIRRORLIST
+VPS_PACKAGES="bash bzip2 coreutils cronie cryptsetup device-mapper dhcpcd diffutils e2fsprogs file filesystem findutils gawk gcc-libs gettext glibc grep gzip heirloom-mailx inetutils initscripts iputils jfsutils less licenses logrotate lvm2 man-db man-pages mdadm nano pacman pacman-mirrorlist pciutils perl ppp procps-ng psmisc reiserfsprogs sed shadow sysfsutils syslog-ng sysvinit tar texinfo usbutils util-linux vi wget which wpa_supplicant xfsprogs linux-raspberrypi linux-headers-raspberrypi raspberrypi-firmware"
+mkarchroot -C "$PACMAN_CONF" archroot $VPS_PACKAGES
+cp $PACMAN_MIRRORLIST archroot/etc/pacman.d/mirrorlist
+sed -i -e "s:$PACMAN_MIRRORLIST:/etc/pacman.d/mirrorlist:" archroot/etc/pacman.conf
+echo -e "root\nroot\n" | chroot archroot /usr/bin/passwd root
+cp /etc/securetty archroot/etc/securetty
+cp /etc/inittab archroot/etc/inittab 
+cp /etc/locale.gen archroot/etc/locale.gen
+chroot archroot /usr/sbin/locale-gen
+chroot archroot mknod -m 600 /dev/console c 5 1
+chroot archroot mknod -m 666 /dev/null c 1 3
+chroot archroot mknod -m 666 /dev/zero c 1 5
+chroot archroot yes | /usr/bin/pacman -Scc
+
+#
+# Boot files
+#
+#cp /boot/bootcode.bin archroot/boot
+#cp /boot/loader.bin archroot/boot
+#cp /boot/arm???_start.elf archroot/boot
+#cp archroot/boot/{arm224_,}start.elf
+cp /boot/cmdline.txt archroot/boot
+
+DATE=$(date +%d-%m-%Y)
+cd archroot
+tar cJf ../archlinuxarm-$DATE.tar.xz ./*
+cd ..
+sha1sum archlinuxarm-jl-$DATE.tar.gz > archlinuxarm-$DATE.tar.gz.sha1
+rm -rf archroot*

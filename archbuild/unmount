@@ -1,0 +1,8 @@
+umount archroot/sys
+umount archroot/proc/sys
+umount archroot/proc
+umount archroot/dev/shm
+umount archroot/dev/pts
+umount archroot/dev
+umount archroot/var/cache/pacman/pkg
+umount archroot/run
