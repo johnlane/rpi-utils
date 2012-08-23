@@ -17,6 +17,11 @@ Building a custom kernel.
 Some tools that can help with managing disks (or other storage devices, e.g: sd card)
 and disk images.
 
+## TestCard
+
+Displays a basic text "test card" on a terminal. Handy for aligning an old
+composite monitor. Sized for 82 columns by 26 rows.
+
 ## ScrapBook
 
 A collection of notes, scripts and other things that may be of interest. Basically,

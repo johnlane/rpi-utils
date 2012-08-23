@@ -22,3 +22,9 @@
    (build)
 
 2. mkpartitions script contains basic commands to partition the sd card (nothing clever - just the basics).
+
+3. rpi_logo displays an colour ASCII art version of the Raspberry Pi logo. From [here](http://www.raspberrypi.org/phpBB3/viewtopic.php?p=78678#p78678).
+
+4. motd is a colour ASCII art rendition of the Arch Linux ARM and Raspberry Pi logos as a login banner
+   put in (/etc/motd). From [here](http://www.raspberrypi.org/phpBB3/viewtopic.php?p=109883#p109883)
+   and [here](http://sjjones85.servebeer.com/files.html).
