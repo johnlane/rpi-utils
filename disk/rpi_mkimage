@@ -331,8 +331,8 @@ def main(name, argv):
 
 
     # Parition sizing minima/maxima
-    bp_size_minimum = 40<<20   # 40MiB
-    bp_size_maximum = 40<<20   # 40MiB
+    bp_size_minimum = 80<<20   # 80MiB
+    bp_size_maximum = 80<<20   # 80MiB
     rp_size_minimum = 1<<30    # 1GiB
     rp_size_maximum = 0        # No limit
 
@@ -640,12 +640,12 @@ def main(name, argv):
 	    os.rmdir(copy_mount_point)
 	    
         elif "directory" in copy_type:
-	    print "Copyng from directory" % copy
-	    os.system("cd %s ; cp -a * %s" % (copy,dest_mount_point))
+	    print "Copyng from directory %s " % copy
+	    os.system("cd %s ; cp -a * %s" % (os.path.abspath(copy),dest_mount_point))
 	elif "tar archive" in copy_type or "compressed data" in copy_type:
 	    if "compressed data" in copy_type: print "File is compressed (assuming compressed tar file)"
-	    print "Copying from tar file" % copy
-	    os.system("cd %s ; tar xf %s" % (dest_mount_point, copy))
+	    print "Copying from tar file %s " % copy
+	    os.system("cd %s ; tar xvf %s" % (dest_mount_point, os.path.abspath(copy)))
         else:
            print "Don't know how to copy %s" % copy
 
