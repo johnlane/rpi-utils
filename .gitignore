@@ -10,3 +10,7 @@ emulator/kernel-qemu
 # Specifically ignore disk images
 disk/*img
 disk/myimage
+
+# Specifically ignore archbuild images
+archbuild/*.xz
+archbuild/*.xz.sha1
