@@ -495,7 +495,7 @@ def main(name, argv):
             loop_device = create_loop_device(dest)
 	    dest_device = loop_device
 
-	    dest_size = os.path.getsize("myimage")
+	    dest_size = os.path.getsize(dest)
 	    if dest_size != vs:
 		os.remove(dest)
                 abort("Created %s has incorrect size %d (expected %d)"%(dest,dest_size,vs))
