@@ -1,0 +1,33 @@
+#!/bin/bash
+
+mkdir kernel-qemu
+cd kernel-qemu
+git clone --depth 1 git://github.com/raspberrypi/linux.git
+wget http://xecdesign.com/downloads/linux-qemu/linux-arm.patch
+patch -p1 -d linux/ < linux-arm.patch
+cd linux
+make ARCH=arm versatile_defconfig
+cat >> .config << EOF
+CONFIG_CROSS_COMPILE="$(which arm-linux-gnueabi-gcc | sed "s/-gcc/-/")"
+CONFIG_CPU_V6=y
+CONFIG_ARM_ERRATA_411920=y
+CONFIG_ARM_ERRATA_364296=y
+CONFIG_AEABI=y
+CONFIG_OABI_COMPAT=y
+CONFIG_PCI=y
+CONFIG_SCSI=y
+CONFIG_SCSI_SYM53C8XX_2=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_BLK_DEV_SR=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_TMPFS=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_EXT4_FS=y
+CONFIG_FONT_8x16=y
+CONFIG_LOGO=y
+EOF
+make -j 8 -k ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabi- menuconfig
+make -j 8 -k ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabi-
+cd ..
+cp linux/arch/arm/boot/zImage kernel-qemu
