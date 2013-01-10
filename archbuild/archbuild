@@ -6,7 +6,7 @@
 PACMAN_MIRRORLIST=`mktemp`
 PACMAN_CONF=`mktemp`
 curl https://projects.archlinux.org/svntogit/packages.git/plain/trunk/pacman.conf?h=packages/pacman > "$PACMAN_CONF"
-VPS_ARCH=arm
+VPS_ARCH=armv6h
 sed -i -e "s@/etc/pacman.d/mirrorlist@$PACMAN_MIRRORLIST@g" -e "s/\Architecture = auto/Architecture = "$VPS_ARCH"/g" "$PACMAN_CONF"
 sed -i -e 's/^SigLevel/#SigLevel/' -e '/^#SigLevel = Optional TrustedOnly/a\SigLevel = Never' "$PACMAN_CONF"
 sed -i -e 's/^CheckSpace/#CheckSpace/' "$PACMAN_CONF"
@@ -36,9 +36,10 @@ chroot archroot yes | /usr/bin/pacman -Scc
 #cp archroot/boot/{arm224_,}start.elf
 cp /boot/cmdline.txt archroot/boot
 
+echo "Creating archlinuxarm-$DATE.tar.xz..."
 DATE=$(date +%d-%m-%Y)
 cd archroot
 tar cJf ../archlinuxarm-$DATE.tar.xz ./*
 cd ..
-sha1sum archlinuxarm-$DATE.tar.gz > archlinuxarm-$DATE.tar.gz.sha1
+sha1sum archlinuxarm-$DATE.tar.zz > archlinuxarm-$DATE.tar.xz.sha1
 rm -rf archroot*
