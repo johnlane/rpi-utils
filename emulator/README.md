@@ -29,11 +29,11 @@ Edit /mnt/etc/fstab. Change
 
 to
 
-   /dev/sda1        /boot  vfat  defaults   0       0
+    /dev/sda1       /boot  vfat  defaults   0       0
 
 and then unmount:
 
-   $ sudo ../disk/rpi_umount /mnt
+    $ sudo ../disk/rpi_umount /mnt
 
 ## Booting
 
