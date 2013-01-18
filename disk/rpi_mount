@@ -52,7 +52,7 @@ else
     
     elif [[ -f $1 ]]; then
     
-        if [[ "$(file -b myimage | awk -F ';' '{print $1}')" == "x86 boot sector" ]]; then
+        if [[ "$(file -b $1 | awk -F ';' '{print $1}')" == "x86 boot sector" ]]; then
     
             # loop mount an image
     
