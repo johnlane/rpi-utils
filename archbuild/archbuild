@@ -41,5 +41,5 @@ DATE=$(date +%d-%m-%Y)
 cd archroot
 tar cJf ../archlinuxarm-$DATE.tar.xz ./*
 cd ..
-sha1sum archlinuxarm-$DATE.tar.zz > archlinuxarm-$DATE.tar.xz.sha1
+sha1sum archlinuxarm-$DATE.tar.xz > archlinuxarm-$DATE.tar.xz.sha1
 rm -rf archroot*
