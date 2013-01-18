@@ -13,8 +13,27 @@ Once the setup script completes, you will have
 
 1. QEMU installed
 2. A system image
-3. A ketnel image
+3. A kernel image
 4. A data disk image
+
+## Fix-up the system image
+
+You need to modify /etc/fstab within the image to change the /boot partition's device
+from /dev/mmcblk0 to /dev/sda1. Use rpi_mount:
+
+    $ sudo ../disk/rpi_mount archlinux-hf-2012-09-18.img /mnt
+
+Edit /mnt/etc/fstab. Change
+
+    /dev/mmcblk0p1  /boot  vfat  defaults   0       0
+
+to
+
+   /dev/sda1        /boot  vfat  defaults   0       0
+
+and then unmount:
+
+   $ sudo ../disk/rpi_umount /mnt
 
 ## Booting
 
@@ -38,6 +57,7 @@ Boot the emulator and then do:
 ## Acknowledgements
 
 Getting Raspberry Pi up and running in QEMU was quick and painless thanks to [this tutorial](http://xecdesign.com/qemu-emulating-raspberry-pi-the-easy-way). This worked first time for me with the default qemu package on Arch Linux and the archlinuxarm-13-06-2012.img.
+Also, thanks to that site, updating to hardfloat was also straightforward. Tested against archlinux-hf-2012-09-18.img.
 
 
 

@@ -17,6 +17,6 @@ qemu-system-arm -machine versatilepb                      \
                 -no-reboot                                \
         	-serial stdio                             \
                 -kernel kernel-qemu                       \
-		-append "root=/dev/sda2 panic=1"          \
-		-hda ${1:-archlinuxarm-13-06-2012.img}    \
+		-append "root=/dev/sda2 panic=1 rw"       \
+		-hda ${1:-archlinux-hf-2012-09-18.img}    \
 		-hdb data_disk.raw
