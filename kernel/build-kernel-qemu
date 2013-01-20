@@ -1,5 +1,25 @@
 #!/bin/bash
+#
+# Build ARM kernel for QEMU Raspberry Pi Emulation
+#
+# John Lane https://github.com/johnlane/rpi-utils
+#
+# Thanks to http://xecdesign.com/compiling-a-kernel/
+#
+#######################################################
 
+# Compile for hard-float ?
+HARDFLOAT=yes
+
+if [[ ${HARDFLOAT} == yes ]]; then
+    TOOLCHAIN=arm-linux-gnueabihf
+    CONFIG_VFP=y
+else
+    TOOLCHAIN=arm-linux-gnueabi
+    CONFIG_VFP=n
+fi
+
+rm -rf kernel-qemu
 mkdir kernel-qemu
 cd kernel-qemu
 git clone --depth 1 git://github.com/raspberrypi/linux.git
@@ -8,7 +28,7 @@ patch -p1 -d linux/ < linux-arm.patch
 cd linux
 make ARCH=arm versatile_defconfig
 cat >> .config << EOF
-CONFIG_CROSS_COMPILE="$(which arm-linux-gnueabi-gcc | sed "s/-gcc/-/")"
+CONFIG_CROSS_COMPILE="$(which ${TOOLCHAIN}-gcc | sed "s/-gcc/-/")"
 CONFIG_CPU_V6=y
 CONFIG_ARM_ERRATA_411920=y
 CONFIG_ARM_ERRATA_364296=y
@@ -23,11 +43,18 @@ CONFIG_DEVTMPFS=y
 CONFIG_DEVTMPFS_MOUNT=y
 CONFIG_TMPFS=y
 CONFIG_INPUT_EVDEV=y
+CONFIG_EXT3_FS=y
 CONFIG_EXT4_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_NLS_CODEPAGE_437=y
+CONFIG_NLS_ISO8859_1=y
 CONFIG_FONT_8x16=y
 CONFIG_LOGO=y
+CONFIG_VFP=${CONFIG_VFP}
+CONFIG_CGROUPS=y
 EOF
-make -j 8 -k ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabi- menuconfig
-make -j 8 -k ARCH=arm CROSS_COMPILE=arm-none-linux-gnueabi-
+
+make -j 8 -k ARCH=arm CROSS_COMPILE=${TOOLCHAIN}- menuconfig
+make -j 8 -k ARCH=arm CROSS_COMPILE=${TOOLCHAIN}-
 cd ..
 cp linux/arch/arm/boot/zImage kernel-qemu
